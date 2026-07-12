@@ -1,0 +1,52 @@
+name: Build Verify
+on:
+  push:
+    branches: [custom-boost]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu device-tree-compiler
+
+      - name: Build
+        id: build
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          make clean
+          make CC=${CROSS_COMPILE}gcc defconfig
+          
+          # Merge vendor GKI config (has WALT+UClamp+BFQ+BBR)
+          if [[ -f scripts/kconfig/merge_config.sh ]]; then
+            scripts/kconfig/merge_config.sh .config arch/arm64/configs/vendor/peridot_GKI.config
+            make CC=${CROSS_COMPILE}gcc olddefconfig
+          fi
+          
+          # Verify configs were applied
+          echo "=== CONFIG VERIFICATION ==="
+          grep -E "CONFIG_SCHED_WALT|CONFIG_UCLAMP|CONFIG_CPU_IDLE_GOV_TEO|CONFIG_TCP_CONG_BBR|CONFIG_ZRAM_DEF_COMP|CONFIG_BPF_JIT_ALWAYS_ON|CONFIG_MQ_IOSCHED_BFQ|CONFIG_CRYPTO_XXHASH" .config || echo "NO MATCHES"
+          
+          echo "=== BUILDING ==="
+          make -j$(nproc) CC=${CROSS_COMPILE}gcc Image.gz 2>&1 | tail -50
+          
+          echo "=== FIND IMAGE ==="
+          find arch/arm64/boot -name "Image*" -ls 2>/dev/null || echo "No image found"
+          ls -lh arch/arm64/boot/ 2>/dev/null || echo "boot dir missing"
+
+      - name: Upload
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocof6-custom-${{ github.run_number }}
+          path: |
+            arch/arm64/boot/Image.gz
+            arch/arm64/boot/Image
