@@ -1,0 +1,45 @@
+name: Build Kernel
+on:
+  push:
+    branches: [custom-boost]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu device-tree-compiler
+
+      - name: Build kernel
+        run: |
+          make clean
+          make CC=aarch64-linux-gnu-gcc defconfig
+          # Apply custom configs
+          grep -q "^CONFIG_SCHED_WALT=y" .config || echo "CONFIG_SCHED_WALT=y" >> .config
+          grep -q "^CONFIG_SCHED_WALT_DEBUG=m" .config || echo "CONFIG_SCHED_WALT_DEBUG=m" >> .config
+          grep -q "^CONFIG_SCHED_CONSERVATIVE_BOOST_LPM_BIAS=y" .config || echo "CONFIG_SCHED_CONSERVATIVE_BOOST_LPM_BIAS=y" >> .config
+          grep -q "^CONFIG_UCLAMP_TASK=y" .config || echo "CONFIG_UCLAMP_TASK=y" >> .config
+          grep -q "^CONFIG_UCLAMP_TASK_GROUP=y" .config || echo "CONFIG_UCLAMP_TASK_GROUP=y" >> .config
+          grep -q "^CONFIG_UCLAMP_BUCKETS_COUNT=20" .config || echo "CONFIG_UCLAMP_BUCKETS_COUNT=20" >> .config
+          grep -q "^CONFIG_CPU_IDLE_GOV_TEO=y" .config || echo "CONFIG_CPU_IDLE_GOV_TEO=y" >> .config
+          grep -q "^CONFIG_CPU_IDLE_GOV_LADDER=y" .config || echo "CONFIG_CPU_IDLE_GOV_LADDER=y" >> .config
+          grep -q "^CONFIG_MQ_IOSCHED_BFQ=y" .config || echo "CONFIG_MQ_IOSCHED_BFQ=y" >> .config
+          grep -q "^CONFIG_TCP_CONG_BBR=y" .config || echo "CONFIG_TCP_CONG_BBR=y" >> .config
+          grep -q "^CONFIG_CRYPTO_XXHASH=y" .config || echo "CONFIG_CRYPTO_XXHASH=y" >> .config
+          grep -q "^CONFIG_BPF_JIT_ALWAYS_ON=y" .config || echo "CONFIG_BPF_JIT_ALWAYS_ON=y" >> .config
+          grep -q "^CONFIG_ZRAM_DEF_COMP="zstd"" .config || echo 'CONFIG_ZRAM_DEF_COMP="zstd"' >> .config
+          make CC=aarch64-linux-gnu-gcc olddefconfig
+          make -j$(nproc) CC=aarch64-linux-gnu-gcc Image.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-custom-boost-${{ github.run_number }}
+          path: arch/arm64/boot/Image.gz
