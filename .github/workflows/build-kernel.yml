@@ -1,0 +1,53 @@
+name: Build Kernel - Minimal Fix
+on:
+  push:
+    branches: [custom-boost]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu device-tree-compiler
+          echo "Build deps installed"
+
+      - name: Build Kernel
+        run: |
+          # Quick test to see if basic kernel build works
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          echo "=== Cleaning ==="
+          make clean || true
+          echo "=== Defconfig ==="
+          make CC=${CROSS_COMPILE}gcc defconfig
+          echo "=== Merging vendor config ==="
+          if [[ -f scripts/kconfig/merge_config.sh ]]; then
+            scripts/kconfig/merge_config.sh .config arch/arm64/configs/vendor/peridot_GKI.config
+          fi
+          echo "=== Building ==="
+          make -j$(nproc) CC=${CROSS_COMPILE}gcc Image.gz 2>&1 | tail -30
+
+      - name: Upload
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocof6-build-${{ github.run_number }}
+          path: arch/arm64/boot/Image.gz
+
+      - name: Upload logs if failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_number }}
+          path: |-
+            .git/ || true
+            arch/arm64/boot/Image.gz 2>/dev/null || true
