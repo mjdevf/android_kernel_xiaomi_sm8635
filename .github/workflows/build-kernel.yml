@@ -1,0 +1,63 @@
+name: Build and Test
+on:
+  push:
+    branches: [custom-boost]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu device-tree-compiler
+
+      - name: Build kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          make clean
+
+          # Step 1: generate defconfig
+          make CC=aarch64-linux-gnu-gcc defconfig
+
+          # Step 2: merge vendor fragment
+          scripts/kconfig/merge_config.sh .config arch/arm64/configs/vendor/peridot_GKI.config
+
+          # Step 3: resolve dependencies
+          make CC=aarch64-linux-gnu-gcc olddefconfig
+
+          # Step 4: build
+          make -j$(nproc) CC=aarch64-linux-gnu-gcc Image.gz 2>&1 | tee build.log || {
+            echo "::error::Build failed"
+            cat build.log
+            exit 1
+          }
+
+          echo "Build complete"
+          ls -lh arch/arm64/boot/Image.gz
+
+      - name: Package
+        run: |
+          mkdir -p ${{ github.workspace }}/artifacts
+          cp arch/arm64/boot/Image.gz ${{ github.workspace }}/artifacts/
+          cp arch/arm64/boot/dtbo.img ${{ github.workspace }}/artifacts/ || true
+          echo "## Custom Kernel Build" > ${{ github.workspace }}/artifacts/README.md
+          echo "Branch: ${{ github.ref_name }}" >> ${{ github.workspace }}/artifacts/README.md
+          echo "Features: WALT + UClamp + BFQ + BBR" >> ${{ github.workspace }}/artifacts/README.md
+          ls -lh ${{ github.workspace }}/artifacts/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocof6-kernel-${{ github.run_number }}
+          path: ${{ github.workspace }}/artifacts/
