@@ -1,0 +1,27 @@
+name: Build Kernel
+on:
+  push:
+    branches: [custom-boost]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu device-tree-compiler
+
+      - name: Build
+        run: |
+          chmod +x build.sh
+          bash build.sh
+
+      - name: Upload
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image-custom-boost-${{ github.run_number }}
+          path: arch/arm64/boot/Image.gz
