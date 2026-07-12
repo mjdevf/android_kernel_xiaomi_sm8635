@@ -1,0 +1,54 @@
+name: Build Custom Kernel
+
+on:
+  push:
+    branches: [ custom-boost ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison flex libssl-dev make \
+            python3 python3-pip \
+            gcc-aarch64-linux-gnu \
+            device-tree-compiler
+
+      - name: Setup kernel build
+        run: |
+          mkdir -p out
+          
+          # Build command - using GKI approach with vendor config
+          make -j\$(nproc) \
+            ARCH=arm64 \
+            CC=aarch64-linux-gnu-gcc \
+            vendor/peridot_GKI.config
+  
+      - name: Build kernel
+        run: |
+          make -j\$(nproc) \
+            ARCH=arm64 \
+            CC=aarch64-linux-gnu-gcc \
+            Image.gz
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact
+          cp out/arch/arm64/boot/Image.gz artifact/
+          cp arch/arm64/boot/Image.gz artifact/ 2>/dev/null || true
+          echo "Kernel custom-boost" > artifact/README.md
+          ls -la artifact/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-custom-boost
+          path: artifact/
